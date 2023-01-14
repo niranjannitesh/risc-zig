@@ -18,13 +18,13 @@ pub const CPU = struct {
 
     const Self = @This();
 
-    pub fn init(code: ArrayList(u8)) Self {
+    pub fn init(code: []u8) !Self {
         var regs = [_]u64{0} ** 32;
         regs[2] = constants.RAM_SIZE;
         return .{
             .regs = regs,
             .pc = constants.RAM_BASE_ADDR,
-            .mm = MemoryMap.init(code),
+            .mm = try MemoryMap.init(code),
         };
     }
 
@@ -58,10 +58,12 @@ pub const CPU = struct {
                 // which is 12 bits
                 const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
                 self.regs[rd] = self.regs[rs1] +% imm;
+                self.pc += 4;
             },
             // ADD
             0x33 => {
                 self.regs[rd] = self.regs[rs1] +% self.regs[rs2];
+                self.pc += 4;
             },
             else => {
                 return CPUError.InvalidInstructionError;

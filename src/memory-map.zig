@@ -10,9 +10,9 @@ pub const MemoryMap = struct {
 
     const Self = @This();
 
-    pub fn init(code: ArrayList(u8)) Self {
+    pub fn init(code: []u8) !Self {
         return .{
-            .dram = Dram.init(code),
+            .dram = try Dram.init(code),
         };
     }
 

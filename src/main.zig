@@ -12,15 +12,14 @@ pub fn main() !void {
         return;
     }
     const buffer = try std.fs.cwd().readFileAlloc(allocator, args[1], std.math.maxInt(usize));
-    var code = try ArrayList(u8).initCapacity(allocator, RAM_SIZE);
-    try code.appendSlice(buffer[0..]);
-    var cpu = CPU.init(code);
+    var cpu = try CPU.init(buffer);
     while (true) {
         const inst = cpu.fetch() catch |err| {
             std.debug.print("{}", .{err});
             break;
         };
         try cpu.execute(inst);
+        cpu.dump_regs();
     }
     cpu.dump_regs();
 }

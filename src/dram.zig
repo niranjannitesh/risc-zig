@@ -1,18 +1,32 @@
 const std = @import("std");
 const range = @import("./utils.zig").range;
 const RAM_BASE_ADDR = @import("./constants.zig").RAM_BASE_ADDR;
+const RAM_SIZE = @import("./constants.zig").RAM_SIZE;
 const ArrayList = std.ArrayList;
 
-const DramError = error{InvalidSizeError};
+const DramError = error{ InvalidSizeError, OutOfMemory };
 
 pub const Dram = struct {
-    buffer: ArrayList(u8),
+    buffer: []align(std.mem.page_size) u8,
 
     const Self = @This();
 
-    pub fn init(code: ArrayList(u8)) Self {
+    pub fn init(code: []u8) !Self {
+        var buffer = std.os.mmap(
+            null,
+            RAM_SIZE,
+            std.os.PROT.READ | std.os.PROT.WRITE,
+            std.os.MAP.PRIVATE | std.os.MAP.ANONYMOUS,
+            -1,
+            0,
+        ) catch {
+            return DramError.OutOfMemory;
+        };
+        for (code) |val, i| {
+            buffer[i] = val;
+        }
         return .{
-            .buffer = code,
+            .buffer = buffer,
         };
     }
 
@@ -22,7 +36,7 @@ pub const Dram = struct {
         }
 
         const nbytes: u8 = @intCast(u8, size / 8);
-        const buffer = self.buffer.items;
+        const buffer = self.buffer;
         const index: u64 = addr - RAM_BASE_ADDR;
         var value: u64 = @intCast(u64, buffer[index]);
         var i: u64 = 1;
@@ -33,7 +47,7 @@ pub const Dram = struct {
     }
 
     pub fn store(self: *Self, addr: u64, value: u64) void {
-        const buffer = self.buffer.items;
+        const buffer = self.buffer;
         const index: u64 = addr - RAM_BASE_ADDR;
         var i: u8 = 0;
         while (i < 8) : (i += 1) {
