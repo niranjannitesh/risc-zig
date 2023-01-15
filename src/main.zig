@@ -6,7 +6,7 @@ const ArrayList = std.ArrayList;
 const allocator = std.heap.page_allocator;
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.c_allocator);
+    const args = try std.process.argsAlloc(allocator);
     if (args.len != 2) {
         std.debug.print("Usage: x <file>\n", .{});
         return;
@@ -15,10 +15,11 @@ pub fn main() !void {
     var cpu = try CPU.init(buffer);
     while (true) {
         const inst = cpu.fetch() catch |err| {
-            std.debug.print("{}", .{err});
+            std.debug.print("{}\n", .{err});
             break;
         };
-        const pc = cpu.execute(inst) catch {
+        const pc = cpu.execute(inst) catch |err| {
+            std.debug.print("{}\n", .{err});
             break;
         };
         cpu.pc = pc;

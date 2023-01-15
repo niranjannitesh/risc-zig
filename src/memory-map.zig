@@ -19,14 +19,20 @@ pub const MemoryMap = struct {
     pub fn load(self: *Self, addr: u64, size: u64) !u64 {
         switch (addr) {
             consts.RAM_BASE_ADDR...consts.RAM_END_ADDR => return try self.dram.load(addr, size),
-            else => return MemoryMapError.IllegalAddressError,
+            else => {
+                // std.debug.print("Illegal address: {}, {}, {}\n", .{ addr, consts.RAM_BASE_ADDR, consts.RAM_END_ADDR });
+                return MemoryMapError.IllegalAddressError;
+            },
         }
     }
 
     pub fn store(self: *Self, addr: u64, size: u64, value: u64) !void {
         switch (addr) {
             consts.RAM_BASE_ADDR...consts.RAM_END_ADDR => return try self.dram.store(addr, size, value),
-            else => return MemoryMapError.IllegalAddressError,
+            else => {
+                // std.debug.print("Illegal address: {}, {}, {}\n", .{ addr, consts.RAM_BASE_ADDR, consts.RAM_END_ADDR });
+                return MemoryMapError.IllegalAddressError;
+            },
         }
     }
 };

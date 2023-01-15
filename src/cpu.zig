@@ -20,7 +20,7 @@ pub const CPU = struct {
 
     pub fn init(code: []u8) !Self {
         var regs = [_]u64{0} ** 32;
-        regs[2] = constants.RAM_SIZE;
+        regs[2] = constants.RAM_BASE_ADDR + constants.RAM_SIZE;
         return .{
             .regs = regs,
             .pc = constants.RAM_BASE_ADDR,
@@ -30,7 +30,7 @@ pub const CPU = struct {
 
     pub fn dump_regs(self: *Self) void {
         for (reg_name) |_, i| {
-            std.debug.print("{s:04} = x{:<02}[0x{x:<.18}] \t {s:04} = x{:<02}[0x{x:<.18}] \t {s:04} = x{:<02}[0x{x:<.18}] \t {s:04} = x{:<02}[0x{x:<.18}]\n", .{ reg_name[i], i, self.regs[i], reg_name[i + 1], i + 1, self.regs[i + 1], reg_name[i + 2], i + 2, self.regs[i + 2], reg_name[i + 3], i + 3, self.regs[i + 3] });
+            std.debug.print("{s:04} = x{:<02}[{x:>18}]\t{s:04} = x{:<02}[{x:>18}]\t{s:04} = x{:<02}[{x:>18}]\t{s:04} = x{:<02}[{x:>18}]\n", .{ reg_name[i], i, self.regs[i], reg_name[i + 1], i + 1, self.regs[i + 1], reg_name[i + 2], i + 2, self.regs[i + 2], reg_name[i + 3], i + 3, self.regs[i + 3] });
             i += 3;
         }
     }
@@ -51,7 +51,7 @@ pub const CPU = struct {
 
         switch (opcode) {
             0x03 => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
+                const imm = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfff00000)) >> 20));
                 const addr = self.regs[rs1] +% imm;
                 switch (funct3) {
                     0x0 => {
@@ -101,8 +101,8 @@ pub const CPU = struct {
                 }
             },
             0x13 => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
-                const shamt = @intCast(u32, imm & 0x1f);
+                const imm: u64 = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfff00000))) >> 20);
+                const shamt = @truncate(u32, imm & 0x1f);
                 switch (funct3) {
                     0x0 => {
                         // ADDI
@@ -116,7 +116,7 @@ pub const CPU = struct {
                     },
                     0x2 => {
                         // SLTI
-                        self.regs[rd] = @boolToInt(@intCast(i64, self.regs[rs1]) < @intCast(i64, imm));
+                        self.regs[rd] = @boolToInt(@intCast(i64, self.regs[rs1]) < imm);
                         return self.pc + 4;
                     },
                     0x3 => {
@@ -138,7 +138,7 @@ pub const CPU = struct {
                             },
                             0x20 => {
                                 // SRAI
-                                self.regs[rd] = @intCast(u64, @intCast(i64, self.regs[rs1]) >> @intCast(u6, shamt));
+                                self.regs[rd] = @bitCast(u64, @bitCast(i64, self.regs[rs1]) >> @truncate(u6, shamt));
                                 return self.pc + 4;
                             },
                             else => {
@@ -162,30 +162,17 @@ pub const CPU = struct {
                 }
             },
             0x17 => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
-                switch (funct3) {
-                    0x0 => {
-                        // AUIPC
-                        self.regs[rd] = self.pc +% imm;
-                        return self.pc + 4;
-                    },
-                    0x1 => {
-                        // LUI
-                        self.regs[rd] = imm;
-                        return self.pc + 4;
-                    },
-                    else => {
-                        return CPUError.InvalidInstructionError;
-                    },
-                }
+                const imm: u64 = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfffff000))));
+                self.regs[rd] = self.pc +% imm;
+                return self.pc + 4;
             },
             0x1b => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
+                const imm = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfff00000))) >> 20);
                 const shamt = @intCast(u32, imm & 0x1f);
                 switch (funct3) {
                     0x0 => {
                         // ADDIW
-                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) +% @intCast(i32, imm));
+                        self.regs[rd] = @bitCast(u64, @intCast(i64, @truncate(u32, self.regs[rs1] +% imm)));
                         return self.pc + 4;
                     },
                     0x1 => {
@@ -216,27 +203,27 @@ pub const CPU = struct {
                 }
             },
             0x23 => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfe000000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00000f80) >> 7));
+                const imm: u64 = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfe000000))) >> 20) | ((inst >> 7) & 0x1f);
                 const addr = self.regs[rs1] +% imm;
                 switch (funct3) {
                     0x0 => {
                         // SB
-                        try self.mm.store(addr, self.regs[rs1] & 0xff, 8);
+                        try self.mm.store(addr, 8, self.regs[rs1] & 0xff);
                         return self.pc + 4;
                     },
                     0x1 => {
                         // SH
-                        try self.mm.store(addr, self.regs[rs1] & 0xffff, 16);
+                        try self.mm.store(addr, 16, self.regs[rs1] & 0xffff);
                         return self.pc + 4;
                     },
                     0x2 => {
                         // SW
-                        try self.mm.store(addr, self.regs[rs1] & 0xffffffff, 32);
+                        try self.mm.store(addr, 32, self.regs[rs2]);
                         return self.pc + 4;
                     },
                     0x3 => {
                         // SD
-                        try self.mm.store(addr, self.regs[rs1], 64);
+                        try self.mm.store(addr, 64, self.regs[rs2]);
                         return self.pc + 4;
                     },
                     else => {
@@ -293,7 +280,7 @@ pub const CPU = struct {
                             },
                             0x20 => {
                                 // SRA
-                                self.regs[rd] = @intCast(u64, @intCast(i64, self.regs[rs1]) >> @intCast(u6, shamt));
+                                self.regs[rd] = @bitCast(u64, @bitCast(i64, self.regs[rs1]) >> @truncate(u6, shamt));
                                 return self.pc + 4;
                             },
                             else => {
@@ -369,7 +356,7 @@ pub const CPU = struct {
                 }
             },
             0x63 => {
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfe000000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00000f00) >> 7) | @intCast(i64, @intCast(i32, inst & 0x00000080) << 4) | @intCast(i64, @intCast(i32, inst & 0x0000007e) << 5));
+                const imm = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfe000000)) >> 20)) | ((inst & 0x80) << 4) | ((inst >> 20) & 0x7e0) | ((inst >> 7) & 0x1e);
                 switch (funct3) {
                     0x0 => {
                         // BEQ
@@ -420,14 +407,13 @@ pub const CPU = struct {
             },
             0x67 => {
                 // JALR
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x000ff000) >> 7));
-                const new_pc = (self.regs[rs1] +% imm) & ~@intCast(u64, 1);
+                const imm = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0xfff00000))) >> 20);
                 self.regs[rd] = self.pc + 4;
-                return new_pc;
+                return (self.regs[rs1] +% imm) & ~@intCast(u64, 1);
             },
             0x6f => {
                 // JAL
-                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0x80000000) >> 11) | @intCast(i64, @intCast(i32, inst & 0x7fe00000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00100000) >> 9) | @intCast(i64, @intCast(i32, inst & 0x000ff000) >> 8) | @intCast(i64, @intCast(i32, inst & 0x00000f00) << 4) | @intCast(i64, @intCast(i32, inst & 0x00000080) << 5) | @intCast(i64, @intCast(i32, inst & 0x0000007e) << 6));
+                const imm = @bitCast(u64, @intCast(i64, @bitCast(i32, @truncate(u32, inst & 0x80000000))) >> 11) | (inst & 0xff000) | ((inst >> 9) & 0x800) | ((inst >> 20) & 0x7fe);
                 self.regs[rd] = self.pc + 4;
                 return self.pc +% imm;
             },
