@@ -22,4 +22,11 @@ pub const MemoryMap = struct {
             else => return MemoryMapError.IllegalAddressError,
         }
     }
+
+    pub fn store(self: *Self, addr: u64, size: u64, value: u64) !void {
+        switch (addr) {
+            consts.RAM_BASE_ADDR...consts.RAM_END_ADDR => return try self.dram.store(addr, size, value),
+            else => return MemoryMapError.IllegalAddressError,
+        }
+    }
 };

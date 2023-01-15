@@ -46,12 +46,16 @@ pub const Dram = struct {
         return value;
     }
 
-    pub fn store(self: *Self, addr: u64, value: u64) void {
+    pub fn store(self: *Self, addr: u64, size: u64, value: u64) !void {
+        if (size != 8 and size != 16 and size != 32 and size != 64) {
+            return DramError.InvalidSizeError;
+        }
+        const nbytes: u8 = @intCast(u8, size / 8);
         const buffer = self.buffer;
         const index: u64 = addr - RAM_BASE_ADDR;
         var i: u8 = 0;
-        while (i < 8) : (i += 1) {
-            buffer[index + i] = value >> (i * 8);
+        while (i < nbytes) : (i += 1) {
+            buffer[index + i] = @intCast(u8, (value >> @intCast(u6, i * 8)) & 0xff);
         }
     }
 };

@@ -39,31 +39,397 @@ pub const CPU = struct {
         return try self.mm.load(self.pc, 32);
     }
 
-    pub fn execute(self: *Self, inst: u64) !void {
-        const opcode = inst & 0b1111111;
-        // move 7 bits to the right and take the first 5 bits
-        const rd = (inst >> 7) & 0b11111;
-        // move 15 bits to the right and take the first 5 bits
-        const rs1 = (inst >> 15) & 0b11111;
-        // move 20 bits to the right and take the first 5 bits
-        const rs2 = (inst >> 20) & 0b11111;
+    pub fn execute(self: *Self, inst: u64) !u64 {
+        const opcode = inst & 0x0000007f;
+        const rd = (inst & 0x00000f80) >> 7;
+        const rs1 = (inst & 0x000f8000) >> 15;
+        const rs2 = (inst & 0x01f00000) >> 20;
+        const funct3 = (inst & 0x00007000) >> 12;
+        const funct7 = (inst & 0xfe000000) >> 25;
 
-        // Emulate that register x0 is hardwired with all bits equal to 0.
         self.regs[0] = 0;
 
         switch (opcode) {
-            // ADDI
-            0x13 => {
-                // move to 32 bit and get til 20 bits from the right
-                // which is 12 bits
+            0x03 => {
                 const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
-                self.regs[rd] = self.regs[rs1] +% imm;
-                self.pc += 4;
+                const addr = self.regs[rs1] +% imm;
+                switch (funct3) {
+                    0x0 => {
+                        // LB
+                        const data = try self.mm.load(addr, 8);
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i8, data)));
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // LH
+                        const data = try self.mm.load(addr, 16);
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i16, data)));
+                        return self.pc + 4;
+                    },
+                    0x2 => {
+                        // LW
+                        const data = try self.mm.load(addr, 32);
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, data)));
+                        return self.pc + 4;
+                    },
+                    0x3 => {
+                        // LD
+                        self.regs[rd] = try self.mm.load(addr, 64);
+                        return self.pc + 4;
+                    },
+                    0x4 => {
+                        // LBU
+                        const data = try self.mm.load(addr, 8);
+                        self.regs[rd] = data;
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        // LHU
+                        const data = try self.mm.load(addr, 16);
+                        self.regs[rd] = data;
+                        return self.pc + 4;
+                    },
+                    0x6 => {
+                        // LWU
+                        const data = try self.mm.load(addr, 32);
+                        self.regs[rd] = data;
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
             },
-            // ADD
+            0x13 => {
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
+                const shamt = @intCast(u32, imm & 0x1f);
+                switch (funct3) {
+                    0x0 => {
+                        // ADDI
+                        self.regs[rd] = self.regs[rs1] +% imm;
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // SLLI
+                        self.regs[rd] = self.regs[rs1] << @intCast(u6, shamt);
+                        return self.pc + 4;
+                    },
+                    0x2 => {
+                        // SLTI
+                        self.regs[rd] = @boolToInt(@intCast(i64, self.regs[rs1]) < @intCast(i64, imm));
+                        return self.pc + 4;
+                    },
+                    0x3 => {
+                        // SLTIU
+                        self.regs[rd] = @boolToInt(self.regs[rs1] < imm);
+                        return self.pc + 4;
+                    },
+                    0x4 => {
+                        // XORI
+                        self.regs[rd] = self.regs[rs1] ^ imm;
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // SRLI
+                                self.regs[rd] = self.regs[rs1] >> @intCast(u6, shamt);
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SRAI
+                                self.regs[rd] = @intCast(u64, @intCast(i64, self.regs[rs1]) >> @intCast(u6, shamt));
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    0x6 => {
+                        // ORI
+                        self.regs[rd] = self.regs[rs1] | imm;
+                        return self.pc + 4;
+                    },
+                    0x7 => {
+                        // ANDI
+                        self.regs[rd] = self.regs[rs1] & imm;
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x17 => {
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
+                switch (funct3) {
+                    0x0 => {
+                        // AUIPC
+                        self.regs[rd] = self.pc +% imm;
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // LUI
+                        self.regs[rd] = imm;
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x1b => {
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20));
+                const shamt = @intCast(u32, imm & 0x1f);
+                switch (funct3) {
+                    0x0 => {
+                        // ADDIW
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) +% @intCast(i32, imm));
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // SLLIW
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) << @intCast(u6, shamt));
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // SRLIW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, @intCast(u32, self.regs[rs1]) >> @intCast(u5, shamt))));
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SRAIW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) >> @intCast(u6, shamt));
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x23 => {
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfe000000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00000f80) >> 7));
+                const addr = self.regs[rs1] +% imm;
+                switch (funct3) {
+                    0x0 => {
+                        // SB
+                        try self.mm.store(addr, self.regs[rs1] & 0xff, 8);
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // SH
+                        try self.mm.store(addr, self.regs[rs1] & 0xffff, 16);
+                        return self.pc + 4;
+                    },
+                    0x2 => {
+                        // SW
+                        try self.mm.store(addr, self.regs[rs1] & 0xffffffff, 32);
+                        return self.pc + 4;
+                    },
+                    0x3 => {
+                        // SD
+                        try self.mm.store(addr, self.regs[rs1], 64);
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
             0x33 => {
-                self.regs[rd] = self.regs[rs1] +% self.regs[rs2];
-                self.pc += 4;
+                const shamt = @intCast(u32, self.regs[rs2] & 0x1f);
+                switch (funct3) {
+                    0x0 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // ADD
+                                self.regs[rd] = self.regs[rs1] +% self.regs[rs2];
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SUB
+                                self.regs[rd] = self.regs[rs1] -% self.regs[rs2];
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    0x1 => {
+                        // SLL
+                        self.regs[rd] = self.regs[rs1] << @intCast(u6, shamt);
+                        return self.pc + 4;
+                    },
+                    0x2 => {
+                        // SLT
+                        self.regs[rd] = @boolToInt(@intCast(i64, self.regs[rs1]) < @intCast(i64, self.regs[rs2]));
+                        return self.pc + 4;
+                    },
+                    0x3 => {
+                        // SLTU
+                        self.regs[rd] = @boolToInt(self.regs[rs1] < self.regs[rs2]);
+                        return self.pc + 4;
+                    },
+                    0x4 => {
+                        // XOR
+                        self.regs[rd] = self.regs[rs1] ^ self.regs[rs2];
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // SRL
+                                self.regs[rd] = self.regs[rs1] >> @intCast(u6, shamt);
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SRA
+                                self.regs[rd] = @intCast(u64, @intCast(i64, self.regs[rs1]) >> @intCast(u6, shamt));
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    0x6 => {
+                        // OR
+                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
+                        return self.pc + 4;
+                    },
+                    0x7 => {
+                        // AND
+                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x37 => {
+                // LUI
+                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfffff000)));
+                return self.pc + 4;
+            },
+            0x3b => {
+                const shamt = @intCast(u32, self.regs[rs2] & 0x1f);
+                switch (funct3) {
+                    0x0 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // ADDW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) +% @intCast(i32, self.regs[rs2]));
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SUBW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) -% @intCast(i32, self.regs[rs2]));
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    0x1 => {
+                        // SLLW
+                        self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) << @intCast(u6, shamt));
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        switch (funct7) {
+                            0x0 => {
+                                // SRLW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, @intCast(u32, self.regs[rs1]) >> @intCast(u5, shamt))));
+                                return self.pc + 4;
+                            },
+                            0x20 => {
+                                // SRAW
+                                self.regs[rd] = @intCast(u64, @intCast(i64, @intCast(i32, self.regs[rs1])) >> @intCast(u5, shamt));
+                                return self.pc + 4;
+                            },
+                            else => {
+                                return CPUError.InvalidInstructionError;
+                            },
+                        }
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x63 => {
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfe000000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00000f00) >> 7) | @intCast(i64, @intCast(i32, inst & 0x00000080) << 4) | @intCast(i64, @intCast(i32, inst & 0x0000007e) << 5));
+                switch (funct3) {
+                    0x0 => {
+                        // BEQ
+                        if (self.regs[rs1] == self.regs[rs2]) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    0x1 => {
+                        // BNE
+                        if (self.regs[rs1] != self.regs[rs2]) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    0x4 => {
+                        // BLT
+                        if (@intCast(i64, self.regs[rs1]) < @intCast(i64, self.regs[rs2])) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    0x5 => {
+                        // BGE
+                        if (@intCast(i64, self.regs[rs1]) >= @intCast(i64, self.regs[rs2])) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    0x6 => {
+                        // BLTU
+                        if (self.regs[rs1] < self.regs[rs2]) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    0x7 => {
+                        // BGEU
+                        if (self.regs[rs1] >= self.regs[rs2]) {
+                            return self.pc +% imm;
+                        }
+                        return self.pc + 4;
+                    },
+                    else => {
+                        return CPUError.InvalidInstructionError;
+                    },
+                }
+            },
+            0x67 => {
+                // JALR
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0xfff00000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x000ff000) >> 7));
+                const new_pc = (self.regs[rs1] +% imm) & ~@intCast(u64, 1);
+                self.regs[rd] = self.pc + 4;
+                return new_pc;
+            },
+            0x6f => {
+                // JAL
+                const imm = @intCast(u64, @intCast(i64, @intCast(i32, inst & 0x80000000) >> 11) | @intCast(i64, @intCast(i32, inst & 0x7fe00000) >> 20) | @intCast(i64, @intCast(i32, inst & 0x00100000) >> 9) | @intCast(i64, @intCast(i32, inst & 0x000ff000) >> 8) | @intCast(i64, @intCast(i32, inst & 0x00000f00) << 4) | @intCast(i64, @intCast(i32, inst & 0x00000080) << 5) | @intCast(i64, @intCast(i32, inst & 0x0000007e) << 6));
+                self.regs[rd] = self.pc + 4;
+                return self.pc +% imm;
             },
             else => {
                 return CPUError.InvalidInstructionError;

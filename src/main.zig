@@ -18,8 +18,10 @@ pub fn main() !void {
             std.debug.print("{}", .{err});
             break;
         };
-        try cpu.execute(inst);
-        cpu.dump_regs();
+        const pc = cpu.execute(inst) catch {
+            break;
+        };
+        cpu.pc = pc;
     }
     cpu.dump_regs();
 }
