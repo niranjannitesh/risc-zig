@@ -274,14 +274,12 @@ pub const CPU = struct {
             0x2f => {
                 // RV64A: "A" standard extension for atomic instructions
                 const funct5 = (funct7 & 0b1111100) >> 2;
-                const _aq = (funct7 & 0b0000010) >> 1; // acquire access
-                const _rl = funct7 & 0b0000001; // release access
                 switch (funct3) {
                     0x2 => {
                         switch (funct5) {
                             0x0 => {
                                 // AMOADD.W
-                                const t = try self.mm.load(addr, 32);
+                                const t = try self.mm.load(self.regs[rs1], 32);
                                 try self.mm.store(self.regs[rs1], 32, t +% self.regs[rs2]);
                                 self.regs[rd] = t;
                                 return self.pc + 4;
